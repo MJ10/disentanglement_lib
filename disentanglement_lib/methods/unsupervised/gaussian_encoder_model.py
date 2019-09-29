@@ -20,7 +20,7 @@ from __future__ import print_function
 import tensorflow as tf
 import tensorflow_hub as hub
 import gin.tf
-
+import numpy as np
 
 class GaussianEncoderModel(object):
   """Abstract base class of a Gaussian encoder model."""
@@ -45,12 +45,25 @@ class GaussianEncoderModel(object):
     """Decodes the latent_tensor to an observation."""
     raise NotImplementedError()
 
-  def sample_from_latent_distribution(self, z_mean, z_logvar):
+
+  def sample_from_latent_distribution(self, z_mean, z_logvar, sigma=0, batch_size=64, num_latent=10):
     """Samples from the Gaussian distribution defined by z_mean and z_logvar."""
-    return tf.add(
-        z_mean,
-        tf.exp(z_logvar / 2) * tf.random_normal(tf.shape(z_mean), 0, 1),
-        name="sampled_latent_variable")
+
+
+    batch_size = batch_size
+    num_latent = num_latent
+    if sigma == 0 :
+      return tf.add(
+          z_mean,
+          tf.exp(z_logvar / 2) * tf.random_normal(tf.shape(z_mean), 0, 1),
+          name="sampled_latent_variable")
+    else:
+      Sigma = sigma * np.ones((num_latent, num_latent)) + (1 - sigma) * np.eye(num_latent)
+      noise = np.random.multivariate_normal(np.zeros(num_latent), Sigma, batch_size)
+      return tf.add(
+          z_mean,
+          tf.exp(z_logvar / 2) * noise,
+          name="sampled_latent_variable")
 
 
 @gin.configurable("export_as_tf_hub", whitelist=[])
@@ -84,6 +97,20 @@ def export_as_tf_hub(gaussian_encoder_model,
               "mean": mean,
               "logvar": logvar
           })
+      
+
+      # # Add a signature for the Gaussian encoder2.
+      # image_placeholder = tf.placeholder(
+      #     dtype=tf.float32, shape=[None] + observation_shape)
+      # mean, logvar = gaussian_encoder_model.gaussian_encoder2(
+      #     image_placeholder, is_training)
+      # hub.add_signature(
+      #     name="gaussian_encoder2",
+      #     inputs={"images": image_placeholder},
+      #     outputs={
+      #         "mean": mean,
+      #         "logvar": logvar
+      #     })
 
       # Add a signature for reconstructions.
       latent_vector = gaussian_encoder_model.sample_from_latent_distribution(

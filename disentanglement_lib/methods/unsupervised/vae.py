@@ -30,10 +30,17 @@ from six.moves import range
 from six.moves import zip
 import tensorflow as tf
 import gin.tf
+import numpy as np
 
 
 class BaseVAE(gaussian_encoder_model.GaussianEncoderModel):
-  """Abstract base class of a basic Gaussian encoder model."""
+  """Abstract base class of a basic Gaussian encoder model.
+
+    Args:
+      sigma: the parameter proposed by our paper used in the reparameter trick of vae.
+    """
+  def __init__(self):
+    self.sigma=0.
 
   def model_fn(self, features, labels, mode, params):
     """TPUEstimator compatible model function."""
@@ -41,7 +48,10 @@ class BaseVAE(gaussian_encoder_model.GaussianEncoderModel):
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
     data_shape = features.get_shape().as_list()[1:]
     z_mean, z_logvar = self.gaussian_encoder(features, is_training=is_training)
-    z_sampled = self.sample_from_latent_distribution(z_mean, z_logvar)
+    # assign parameter sigma on reparameter trick. 
+    z_sampled = self.sample_from_latent_distribution(z_mean, z_logvar, self.sigma)
+    print("============> sigma: {}".format(self.sigma))
+    
     reconstructions = self.decode(z_sampled, data_shape, is_training)
     per_sample_loss = losses.make_reconstruction_loss(features, reconstructions)
     reconstruction_loss = tf.reduce_mean(per_sample_loss)
@@ -79,7 +89,7 @@ class BaseVAE(gaussian_encoder_model.GaussianEncoderModel):
     else:
       raise NotImplementedError("Eval mode not supported.")
 
-  def gaussian_encoder(self, input_tensor, is_training):
+  def gaussian_encoder(self, input_tensor, is_training, reuse=False):
     """Applies the Gaussian encoder to images.
 
     Args:
@@ -90,12 +100,25 @@ class BaseVAE(gaussian_encoder_model.GaussianEncoderModel):
       Tuple of tensors with the mean and log variance of the Gaussian encoder.
     """
     return architectures.make_gaussian_encoder(
-        input_tensor, is_training=is_training)
+        input_tensor, is_training=is_training, reuse=reuse)
 
-  def decode(self, latent_tensor, observation_shape, is_training):
+  def gaussian_encoder2(self, input_tensor, is_training, reuse=False):
+    """Applies the Gaussian encoder to images.
+
+    Args:
+      input_tensor: Tensor with the observations to be encoded.
+      is_training: Boolean indicating whether in training mode.
+
+    Returns:
+      Tuple of tensors with the mean and log variance of the Gaussian encoder.
+    """
+    return architectures.make_gaussian_encoder2(
+        input_tensor, is_training=is_training, reuse=reuse)
+
+  def decode(self, latent_tensor, observation_shape, is_training, reuse=False):
     """Decodes the latent_tensor to an observation."""
     return architectures.make_decoder(
-        latent_tensor, observation_shape, is_training=is_training)
+        latent_tensor, observation_shape, is_training=is_training, reuse=reuse)
 
 
 def shuffle_codes(z):
@@ -135,7 +158,7 @@ def make_metric_fn(*names):
 class BetaVAE(BaseVAE):
   """BetaVAE model."""
 
-  def __init__(self, beta=gin.REQUIRED):
+  def __init__(self, beta=gin.REQUIRED, sigma=gin.REQUIRED):
     """Creates a beta-VAE model.
 
     Implementing Eq. 4 of "beta-VAE: Learning Basic Visual Concepts with a
@@ -149,10 +172,31 @@ class BetaVAE(BaseVAE):
       model_fn: Model function for TPUEstimator.
     """
     self.beta = beta
+    self.sigma = sigma
 
   def regularizer(self, kl_loss, z_mean, z_logvar, z_sampled):
     del z_mean, z_logvar, z_sampled
     return self.beta * kl_loss
+
+
+@gin.configurable("BottleneckVAE")  # This will allow us to reference the model.
+class BottleneckVAE(BaseVAE):
+  """BottleneckVAE.
+
+  The loss of this VAE-style model is given by:
+    loss = reconstruction loss + gamma * |KL(app. posterior | prior) - target|
+  """
+
+  def __init__(self, gamma=gin.REQUIRED, target=gin.REQUIRED):
+    self.gamma = gamma
+    self.target = target
+
+  def regularizer(self, kl_loss, z_mean, z_logvar, z_sampled):
+    # This is how we customize BaseVAE. To learn more, have a look at the
+    # different models in vae.py.
+    del z_mean, z_logvar, z_sampled
+    return self.gamma * tf.math.abs(kl_loss - self.target)
+
 
 
 def anneal(c_max, step, iteration_threshold):
@@ -198,11 +242,12 @@ class AnnealedVAE(BaseVAE):
     return self.gamma * tf.math.abs(kl_loss - c)
 
 
+
 @gin.configurable("factor_vae")
 class FactorVAE(BaseVAE):
   """FactorVAE model."""
 
-  def __init__(self, gamma=gin.REQUIRED):
+  def __init__(self, gamma=gin.REQUIRED, sigma=gin.REQUIRED):
     """Creates a FactorVAE model.
 
     Implementing Eq. 2 of "Disentangling by Factorizing"
@@ -212,6 +257,8 @@ class FactorVAE(BaseVAE):
       gamma: Hyperparameter for the regularizer.
     """
     self.gamma = gamma
+    self.sigma = sigma
+    
 
   def model_fn(self, features, labels, mode, params):
     """TPUEstimator compatible model function."""
@@ -219,7 +266,9 @@ class FactorVAE(BaseVAE):
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
     data_shape = features.get_shape().as_list()[1:]
     z_mean, z_logvar = self.gaussian_encoder(features, is_training=is_training)
-    z_sampled = self.sample_from_latent_distribution(z_mean, z_logvar)
+    # assign parameter sigma on reparameter trick.
+    z_sampled = self.sample_from_latent_distribution(z_mean, z_logvar, sigma=self.sigma)
+
     z_shuffle = shuffle_codes(z_sampled)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       logits_z, probs_z = architectures.make_discriminator(

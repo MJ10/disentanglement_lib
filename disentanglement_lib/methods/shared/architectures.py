@@ -26,7 +26,8 @@ import gin.tf
 def make_gaussian_encoder(input_tensor,
                           is_training=True,
                           num_latent=gin.REQUIRED,
-                          encoder_fn=gin.REQUIRED):
+                          encoder_fn=gin.REQUIRED,
+                          reuse=False):
   """Gin wrapper to create and apply a Gaussian encoder configurable with gin.
 
   This is a separate function so that several different models (such as
@@ -46,18 +47,20 @@ def make_gaussian_encoder(input_tensor,
   Returns:
     Tuple (means, log_vars) with the encoder means and log variances.
   """
-  with tf.variable_scope("encoder"):
+  with tf.variable_scope("encoder", reuse=reuse):
     return encoder_fn(
         input_tensor=input_tensor,
         num_latent=num_latent,
         is_training=is_training)
 
 
+
 @gin.configurable("decoder", whitelist=["decoder_fn"])
 def make_decoder(latent_tensor,
                  output_shape,
                  is_training=True,
-                 decoder_fn=gin.REQUIRED):
+                 decoder_fn=gin.REQUIRED,
+                 reuse=False):
   """Gin wrapper to create and apply a decoder configurable with gin.
 
   This is a separate function so that several different models (such as
@@ -77,7 +80,7 @@ def make_decoder(latent_tensor,
   Returns:
     Tensor of decoded observations.
   """
-  with tf.variable_scope("decoder"):
+  with tf.variable_scope("decoder", reuse=reuse):
     return decoder_fn(
         latent_tensor=latent_tensor,
         output_shape=output_shape,
@@ -203,6 +206,341 @@ def conv_encoder(input_tensor, num_latent, is_training=True):
   e5 = tf.layers.dense(flat_e4, 256, activation=tf.nn.relu, name="e5")
   means = tf.layers.dense(e5, num_latent, activation=None, name="means")
   log_var = tf.layers.dense(e5, num_latent, activation=None, name="log_var")
+  return means, log_var
+
+######################### modification ################################
+@gin.configurable("conv_ns_encoder", whitelist=[])
+def conv_fc_encoder(input_tensor, num_latent, is_training=True):
+  """Convolutional encoder used in beta-VAE paper for the chairs data.
+
+  Based on row 3 of Table 1 on page 13 of "beta-VAE: Learning Basic Visual
+  Concepts with a Constrained Variational Framework"
+  (https://openreview.net/forum?id=Sy2fzU9gl)
+
+  Args:
+    input_tensor: Input tensor of shape (batch_size, 64, 64, num_channels) to
+      build encoder on.
+    num_latent: Number of latent variables to output.
+    is_training: Whether or not the graph is built for training (UNUSED).
+
+  Returns:
+    means: Output tensor of shape (batch_size, num_latent) with latent variable
+      means.
+    log_var: Output tensor of shape (batch_size, num_latent) with latent
+      variable log variances.
+  """
+  del is_training
+
+  e1 = tf.layers.conv2d(
+      inputs=input_tensor,
+      filters=32,
+      kernel_size=4,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e1",
+  )
+  e2 = tf.layers.conv2d(
+      inputs=e1,
+      filters=32,
+      kernel_size=4,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e2",
+  )
+  e3 = tf.layers.conv2d(
+      inputs=e2,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e3",
+  )
+  e4 = tf.layers.conv2d(
+      inputs=e3,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e4",
+  )
+  e5 = tf.layers.conv2d(
+      inputs=e4,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e5",
+  )
+  e6_means = tf.layers.conv2d(
+      inputs=e5,
+      filters=10,
+      kernel_size=2,
+      strides=2,
+      activation=None,
+      padding="same",
+      name="e6_means",
+  )
+  e6_log_var = tf.layers.conv2d(
+      inputs=e5,
+      filters=10,
+      kernel_size=2,
+      strides=2,
+      activation=None,
+      padding="same",
+      name="e6_log_var",
+  )
+
+  means = tf.layers.flatten(e6_means)
+  log_var = tf.layers.flatten(e6_log_var)
+  return means, log_var
+
+
+@gin.configurable("conv_3d_encoder", whitelist=[])
+def conv_encoder(input_tensor, num_latent, is_training=True):
+  """Convolutional encoder used in our paper for the cars3d data.
+
+  Based on row 3 of Table 1 on page 13 of "beta-VAE: Learning Basic Visual
+  Concepts with a Constrained Variational Framework"
+  (https://openreview.net/forum?id=Sy2fzU9gl)
+
+  Args:
+    input_tensor: Input tensor of shape (batch_size, 128, 128, num_channels) to
+      build encoder on.
+    num_latent: Number of latent variables to output.
+    is_training: Whether or not the graph is built for training (UNUSED).
+
+  Returns:
+    means: Output tensor of shape (batch_size, num_latent) with latent variable
+      means.
+    log_var: Output tensor of shape (batch_size, num_latent) with latent
+      variable log variances.
+  """
+  del is_training
+
+  e1 = tf.layers.conv2d(
+      inputs=input_tensor,
+      filters=32,
+      kernel_size=4,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e1",
+  )
+  e2 = tf.layers.conv2d(
+      inputs=e1,
+      filters=32,
+      kernel_size=4,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e2",
+  )
+  e3 = tf.layers.conv2d(
+      inputs=e2,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e3",
+  )
+  e4 = tf.layers.conv2d(
+      inputs=e3,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e4",
+  )
+  e5 = tf.layers.conv2d(
+      inputs=e4,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e5",
+  )
+  e6 = tf.layers.conv2d(
+      inputs=e5,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e6",
+  )
+  flat_e6 = tf.layers.flatten(e6)
+  e7 = tf.layers.dense(flat_e6, 256, activation=tf.nn.relu, name="e7")
+  means = tf.layers.dense(e7, num_latent, activation=None, name="means")
+  log_var = tf.layers.dense(e7, num_latent, activation=None, name="log_var")
+  return means, log_var
+
+@gin.configurable("conv_3d_split_encoder", whitelist=[])
+def conv_encoder(input_tensor, num_latent, is_training=True):
+  """Convolutional encoder used in our paper for the cars3d data.
+  our split encoder:
+  From the layer 'e6', we use our trick to split original one column convolutional
+  neural network into multi-column convolutional and fc layers which are independent
+  with each other to enhance their independence.
+
+
+  Args:
+    input_tensor: Input tensor of shape (batch_size, 128, 128, num_channels) to
+      build encoder on.
+    num_latent: Number of latent variables to output.
+    is_training: Whether or not the graph is built for training (UNUSED).
+
+  Returns:
+    means: Output tensor of shape (batch_size, num_latent) with latent variable
+      means.
+    log_var: Output tensor of shape (batch_size, num_latent) with latent
+      variable log variances.
+  """
+  del is_training
+
+  e1 = tf.layers.conv2d(
+      inputs=input_tensor,
+      filters=32,
+      kernel_size=4,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e1",
+  )
+  e2 = tf.layers.conv2d(
+      inputs=e1,
+      filters=32,
+      kernel_size=4,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e2",
+  )
+  e3 = tf.layers.conv2d(
+      inputs=e2,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e3",
+  )
+  e4 = tf.layers.conv2d(
+      inputs=e3,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e4",
+  )
+  e5 = tf.layers.conv2d(
+      inputs=e4,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e5",
+  )
+
+  e6_list = []
+  flat_e6_list = []
+  e7_list = []
+  means_list = []
+  log_var_list = []
+  for i in range(num_latent):
+    e6_list.append(tf.layers.conv2d(
+      inputs=e5,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",))
+    flat_e6_list.append(tf.layers.flatten(e6_list[i]))
+    e7_list.append(tf.layers.dense(flat_e6_list[i], 256, activation=tf.nn.relu))
+    means_list.append(tf.layers.dense(e7_list[i], 1, activation=None))
+    log_var_list.append(tf.layers.dense(e7_list[i], 1, activation=None))
+  means = tf.concat(means_list, axis=1)
+  log_var = tf.concat(log_var_list, axis=1)
+
+  return means, log_var
+
+@gin.configurable("conv_split_encoder", whitelist=[])
+def conv_encoder(input_tensor, num_latent, is_training=True):
+  """Convolutional split encoder used in our paper for the dsprites data.
+
+  From the layer 'e6', we use our trick to split original one column convolutional
+  neural network into multi-column convolutional and fc layers which are independent
+  with each other to enhance their independence.
+
+  Args:
+    input_tensor: Input tensor of shape (batch_size, 64, 64, num_channels) to
+      build encoder on.
+    num_latent: Number of latent variables to output.
+    is_training: Whether or not the graph is built for training (UNUSED).
+
+  Returns:
+    means: Output tensor of shape (batch_size, num_latent) with latent variable
+      means.
+    log_var: Output tensor of shape (batch_size, num_latent) with latent
+      variable log variances.
+  """
+  del is_training
+
+  e1 = tf.layers.conv2d(
+      inputs=input_tensor,
+      filters=32,
+      kernel_size=4,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e1",
+  )
+  e2 = tf.layers.conv2d(
+      inputs=e1,
+      filters=32,
+      kernel_size=4,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e2",
+  )
+  e3 = tf.layers.conv2d(
+      inputs=e2,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",
+      name="e3",
+  )
+  e4_list = []
+  flat_e4_list = []
+  e5_list = []
+  means_list = []
+  log_var_list = []
+  for i in range(num_latent):
+    e4_list.append(tf.layers.conv2d(
+      inputs=e3,
+      filters=64,
+      kernel_size=2,
+      strides=2,
+      activation=tf.nn.relu,
+      padding="same",))
+    flat_e4_list.append(tf.layers.flatten(e4_list[i]))
+    e5_list.append(tf.layers.dense(flat_e4_list[i], 256, activation=tf.nn.relu))
+    means_list.append(tf.layers.dense(e5_list[i], 1, activation=None))
+    log_var_list.append(tf.layers.dense(e5_list[i], 1, activation=None))
+  means = tf.concat(means_list, axis=1)
+  log_var = tf.concat(log_var_list, axis=1)
   return means, log_var
 
 
