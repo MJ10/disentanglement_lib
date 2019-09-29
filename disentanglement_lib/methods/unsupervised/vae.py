@@ -469,7 +469,7 @@ def total_correlation(z, z_mean, z_logvar):
 class BetaTCVAE(BaseVAE):
   """BetaTCVAE model."""
 
-  def __init__(self, beta=gin.REQUIRED):
+  def __init__(self, beta=gin.REQUIRED, sigma=gin.REQUIRED):
     """Creates a beta-TC-VAE model.
 
     Based on Equation 4 with alpha = gamma = 1 of "Isolating Sources of
@@ -481,6 +481,7 @@ class BetaTCVAE(BaseVAE):
       beta: Hyperparameter total correlation.
     """
     self.beta = beta
+    self.sigma = sigma
 
   def regularizer(self, kl_loss, z_mean, z_logvar, z_sampled):
     tc = (self.beta - 1.) * total_correlation(z_sampled, z_mean, z_logvar)
